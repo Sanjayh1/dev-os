@@ -18,7 +18,6 @@ The current application target is **ContractIQ** — an enterprise AI contract r
 dev-os/
 ├── CLAUDE.md                     # Project instructions & stage-gated workflow rules
 ├── docs/
-│   ├── design.md                 # Brand design system (colors, typography, spacing, components)
 │   ├── ContractIQ_PRD.md         # Product Requirements Document for ContractIQ
 ├── skills/                       # Claude Code custom skills (slash commands)
 │   ├── engineering-planner/
@@ -30,7 +29,7 @@ dev-os/
 │   ├── frontend-setup/
 │   │   └── SKILL.md              # Stage 4: Scaffold Next.js 14 App Router project
 │   └── design-system/
-│       └── SKILL.md              # Applied during all frontend work — enforces design.md
+│       └── SKILL.md              # Applied during all frontend work — the authoritative brand design system
 ```
 
 > Files and folders under `docs/engineering/`, `docs/specs/`, `docs/security/`, and `.env.example` are generated outputs — they are created during the build workflow and do not exist until their respective stage runs.
@@ -44,7 +43,7 @@ Each stage must be completed and approved before the next begins.
 | Stage | Skill | Input | Output |
 |---|---|---|---|
 | 1 — Engineering Plan | `/engineering-planner` | PRD | `docs/engineering/engineering-doc.md` + `docs/engineering/implementation-specs.md` |
-| 2 — Implementation Specs | `/implementation-specs` | Stage 1 docs | `docs/specs/*.md` + `docs/specs/supabase-schema.sql` + `.env.example` |
+| 2 — Implementation Specs | `/implementation-specs` | Stage 1 docs | `docs/specs/*.md` + `database.sql` + `.env.example` |
 | 3 — Security Foundation | `/security-foundation` | Stages 1–2 docs | `docs/security/security-plan.md` + `supabase/rls-policies.sql` + `src/lib/security/` |
 | 4 — Frontend Setup | `/frontend-setup` | Stages 2–3 docs | Scaffolded Next.js 14 app |
 | 5 — Feature Implementation | *(manual, one feature at a time)* | `docs/specs/*.md` | Feature code |
@@ -59,7 +58,7 @@ Skills live in `skills/<name>/SKILL.md` and are invoked as slash commands in Cla
 Transforms a PRD into two engineering documents. Asks clarifying questions (auth strategy, DB, LLM provider, user roles) before generating anything. Output is the authoritative reference for all downstream stages.
 
 ### `/implementation-specs`
-Reads the approved engineering docs and generates granular, runnable specs — one file per concern. Always produces `supabase-schema.sql` (paste-and-run SQL) and `.env.example` (all environment variables grouped by service).
+Reads the approved engineering docs and generates granular, runnable specs — one file per concern. Always produces `database.sql` (paste-and-run SQL, project root) and `.env.example` (all environment variables grouped by service).
 
 ### `/security-foundation`
 Reviews all engineering and spec documents, identifies every security surface, and implements controls before any feature code is written. Covers auth, rate limiting, prompt injection, token limits, file upload validation, RLS policies, and environment variable protection.
@@ -68,7 +67,7 @@ Reviews all engineering and spec documents, identifies every security surface, a
 Scaffolds a complete Next.js 14 (App Router) project — `package.json`, `next.config.mjs`, `app/layout.jsx`, `app/globals.css`, `app/page.jsx` — and runs the dev server.
 
 ### `/design-system`
-Enforces the brand design system defined in `docs/design.md` on all frontend code. Applied automatically whenever any UI component, page, or style is written. Uses Inter for body text, JetBrains Mono for contract content, and `#112E81` as the primary brand color.
+Enforces the brand design system defined directly in `skills/design-system/SKILL.md` (the "Legal Contract Review Platform" system) on all frontend code. Applied automatically whenever any UI component, page, or style is written. Uses Inter for body text, JetBrains Mono for contract content, and `#112E81` as the primary brand color.
 
 ---
 
@@ -89,5 +88,5 @@ Tech stack (fixed):
 - **Frontend:** Next.js 14 (App Router)
 - **Backend:** Next.js API Routes
 - **Database:** Supabase (PostgreSQL + Auth + Storage)
-- **AI:** Anthropic Claude API
+- **AI:** OpenAI GPT-4o
 - **UI:** Lucide React icons, Inter + JetBrains Mono fonts

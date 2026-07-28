@@ -31,14 +31,14 @@ When done, show the user what was created and ask:
 ### Stage 2 — Implementation Specs
 **Skill:** `/implementation-specs`
 **Input:** `docs/engineering/engineering-doc.md` (from Stage 1)
-**Output:** `docs/specs/` — detailed spec files + `docs/specs/supabase-schema.sql` + `.env.example`
+**Output:** `docs/specs/` — detailed spec files + `database.sql` (project root) + `.env.example`
 
 Read the approved engineering plan and generate granular, runnable implementation specs. The LLM decides what spec files are needed based on the plan. Always includes:
-- `docs/specs/supabase-schema.sql` — paste-and-run SQL for Supabase SQL Editor (tables, RLS policies, indexes, triggers)
+- `database.sql` (project root) — paste-and-run SQL for Supabase SQL Editor (tables, RLS policies, indexes, triggers)
 - `.env.example` — every environment variable the app needs, grouped by service
 
 When done, show the user what was created and ask:
-> "All implementation specs are in `docs/specs/`. The Supabase schema SQL is ready to run. Review the specs and let me know when you're ready for Stage 3."
+> "All implementation specs are in `docs/specs/`. The database schema SQL (`database.sql`) is ready to run. Review the specs and let me know when you're ready for Stage 3."
 
 ---
 
@@ -120,7 +120,7 @@ When done, show the user what was created and ask:
 | Skill | Command | What it does |
 |---|---|---|
 | Engineering Planner | `/engineering-planner` | PRD → `docs/engineering/engineering-doc.md` + `docs/engineering/implementation-specs.md` |
-| Implementation Specs | `/implementation-specs` | Engineering docs → granular spec files + `supabase-schema.sql` + `.env.example` |
+| Implementation Specs | `/implementation-specs` | Engineering docs → granular spec files + `database.sql` + `.env.example` |
 | Frontend Setup | `/frontend-setup` | Scaffolds a Next.js 14 App Router project |
 | Design System | `/design-system` | Enforces brand colors, typography, spacing, and component styles on all UI code |
 | Security Foundation | `/security-foundation` | Implements all security controls → `docs/security/security-plan.md` + `supabase/rls-policies.sql` + `src/lib/security/` |
@@ -134,7 +134,7 @@ When done, show the user what was created and ask:
 | `docs/engineering/engineering-doc.md` | `/engineering-planner` | High-level architecture, flows, DB design, API spec |
 | `docs/engineering/implementation-specs.md` | `/engineering-planner` | Per-feature specs (flow, DB, API, component, edge cases) |
 | `docs/specs/*.md` | `/implementation-specs` | Additional granular specs derived from the engineering docs |
-| `docs/specs/supabase-schema.sql` | `/implementation-specs` | Run this in Supabase SQL Editor to create all tables |
+| `database.sql` (project root) | `/implementation-specs` | Run this in Supabase SQL Editor to create all tables |
 | `.env.example` | `/implementation-specs` | All environment variables — copy to `.env.local` and fill in values |
 | `docs/security/security-plan.md` | `/security-foundation` | Security controls, audit log, RLS policies |
 

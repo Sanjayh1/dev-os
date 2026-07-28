@@ -37,9 +37,9 @@ Use your judgment on how to split concerns. Some features may warrant their own 
 
 ---
 
-## Always include: `docs/specs/supabase-schema.sql`
+## Always include: `database.sql` (project root)
 
-Regardless of what other specs you generate, always produce this file. It must be a single SQL file that can be pasted directly into the **Supabase SQL Editor** and run on a fresh project without errors.
+Regardless of what other specs you generate, always produce this file at the project root (not under `docs/specs/`). It must be a single SQL file that can be pasted directly into the **Supabase SQL Editor** and run on a fresh project without errors.
 
 The SQL must cover everything the plan specifies:
 - Extensions

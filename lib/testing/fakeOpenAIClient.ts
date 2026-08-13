@@ -1,6 +1,6 @@
-// Fake OpenAI client for E2E runs. Distinguishes the extraction call from
-// the chat call the same way the real API does: extraction always sets
-// response_format: { type: 'json_object' }, chat never does.
+// Fake OpenAI client for E2E runs. Used only by key-term extraction
+// (app/api/contracts/[id]/process) — chat now calls the Azure agent via
+// lib/azure.ts / lib/testing/fakeAzureClient.ts instead.
 
 interface FakeChatMessage {
   role: string
@@ -35,22 +35,12 @@ function fakeExtractionContent(): string {
   })
 }
 
-// Kept free of the raw user message: it can contain arbitrary punctuation
-// (periods) that would confuse ChatMessage's "Based on the document…" prefix
-// split, which looks for the first period to end the lead-in.
-function fakeChatContent(): string {
-  return 'Based on the document, this is a fake E2E test response. [Page 1]'
-}
-
 export function createFakeOpenAIClient() {
   return {
     chat: {
       completions: {
-        async create(params: FakeCompletionParams) {
-          if (params.response_format?.type === 'json_object') {
-            return { choices: [{ message: { content: fakeExtractionContent() } }] }
-          }
-          return { choices: [{ message: { content: fakeChatContent() } }] }
+        async create(_params: FakeCompletionParams) {
+          return { choices: [{ message: { content: fakeExtractionContent() } }] }
         },
       },
     },

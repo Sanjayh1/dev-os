@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { apiError } from '@/lib/api/errors'
-import { openai } from '@/lib/openai/client'
+import { azure } from '@/lib/azure'
 import { buildChatPrompt, classifyQuestion, type ChatHistoryMessage } from '@/lib/openai/prompts/chat'
 import { requireAuth } from '@/lib/security/authGuard'
 import { checkRateLimit, rateLimitedResponse } from '@/lib/security/rateLimiter'
@@ -11,10 +10,13 @@ import { MAX_MESSAGE_LENGTH } from '@/lib/security/tokenLimiter'
 
 // Spec: docs/specs/contract-chat.md — Conversation Memory Layer
 // POST /api/contracts/{id}/chat — send a message, get a grounded response
-
-const MODEL = 'gpt-4o'
-const TEMPERATURE = 0.4
-const MAX_TOKENS = 1000
+//
+// Calls an Azure AI Foundry agent (Responses API), not OpenAI chat
+// completions. The agent has its own model + system prompt configured in
+// the portal, so no model/instructions fields are sent here — see
+// lib/azure.ts and skills/azure-ai-foundry/skill.md.
+export const runtime = 'nodejs'
+export const maxDuration = 60
 
 // "Turn" = one chat_messages row (one user or assistant message).
 const CONTRACT_CONTEXT_TURNS = 10
@@ -58,6 +60,23 @@ function extractCitedPages(content: string): number[] {
   const matches = Array.from(content.matchAll(/\[Page (\d+)\]/g))
   const pages = new Set(matches.map((match) => Number(match[1])))
   return Array.from(pages).sort((a, b) => a - b)
+}
+
+// The Azure agent rejects a system field and only accepts a single input
+// message (skill §4), so the system prompt + conversation history + new
+// question are all flattened into one string here instead of being sent as
+// separate roles.
+function buildAgentInput(system: string, messages: ChatHistoryMessage[]): string {
+  const transcript = messages.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n\n')
+  return `${system}\n\n${transcript}`
+}
+
+function extractResponseText(response: unknown): string {
+  const result = response as { output_text?: string; output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }> }
+  if (typeof result.output_text === 'string') return result.output_text
+  const message = result.output?.find((item) => item.type === 'message')
+  const textPart = message?.content?.find((part) => part.type === 'output_text')
+  return textPart?.text ?? ''
 }
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
@@ -135,21 +154,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   let assistantContent: string
   try {
-    const completion = await openai.chat.completions.create({
-      model: MODEL,
-      temperature: TEMPERATURE,
-      max_tokens: MAX_TOKENS,
-      messages: [
-        { role: 'system', content: prompt.system },
-        ...prompt.messages.map((m) => ({ role: m.role, content: m.content }) as const),
-      ],
+    // Cast to any: the OpenAI SDK's TS types require `model` on
+    // responses.create, but the Azure agent rejects that field at runtime
+    // since its model is configured in the portal (skill §4).
+    const response = await (azure.responses as any).create({
+      input: [{ role: 'user', content: buildAgentInput(prompt.system, prompt.messages) }],
     })
-    assistantContent = completion.choices[0]?.message?.content ?? ''
+    assistantContent = extractResponseText(response)
   } catch (err) {
-    if (err instanceof OpenAI.APIConnectionTimeoutError) {
-      return apiError(504, 'openai_timeout', 'The request timed out. Please try again.')
-    }
-    return apiError(502, 'openai_chat_failed', 'Failed to get a response. Please try again.')
+    // Real Azure error text is returned as-is — needed to diagnose
+    // credential/endpoint problems (skill §4, §7).
+    const message = err instanceof Error ? err.message : 'Failed to get a response from the Azure agent.'
+    return apiError(502, 'azure_chat_failed', message)
   }
 
   // Only now, after classification has already run against the pre-existing
@@ -174,7 +190,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     .single()
 
   if (assistantInsertError || !assistantRow) {
-    return apiError(502, 'openai_chat_failed', 'Failed to save the response. Please try again.')
+    return apiError(502, 'chat_message_save_failed', 'Failed to save the response. Please try again.')
   }
 
   return NextResponse.json({

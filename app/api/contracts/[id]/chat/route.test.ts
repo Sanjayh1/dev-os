@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockSupabaseClient } from '@/test/helpers/supabaseMock'
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
-vi.mock('@/lib/openai/client', () => ({ openai: { chat: { completions: { create: vi.fn() } } } }))
+vi.mock('@/lib/azure', () => ({ azure: { responses: { create: vi.fn() } } }))
 vi.mock('@/lib/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 0 }),
   rateLimitedResponse: vi.fn((retryAfterSeconds: number) => {
@@ -14,12 +14,12 @@ vi.mock('@/lib/security/rateLimiter', () => ({
 }))
 
 import { createClient } from '@/lib/supabase/server'
-import { openai } from '@/lib/openai/client'
+import { azure } from '@/lib/azure'
 import { checkRateLimit } from '@/lib/security/rateLimiter'
 import { GET, POST } from './route'
 
 const mockedCreateClient = vi.mocked(createClient)
-const mockedCreateCompletion = vi.mocked(openai.chat.completions.create)
+const mockedCreateResponse = vi.mocked(azure.responses.create)
 const mockedCheckRateLimit = vi.mocked(checkRateLimit)
 
 function postRequest(body: unknown) {
@@ -30,8 +30,8 @@ function postRequest(body: unknown) {
   })
 }
 
-function chatCompletion(content: string) {
-  return { choices: [{ message: { content } }] } as never
+function agentResponse(content: string) {
+  return { output_text: content } as never
 }
 
 beforeEach(() => {
@@ -80,7 +80,7 @@ describe('POST /api/contracts/{id}/chat', () => {
     expect(response.headers.get('Retry-After')).toBe('60')
   })
 
-  it('returns 400 prompt_injection and never calls OpenAI for an injection attempt', async () => {
+  it('returns 400 prompt_injection and never calls the Azure agent for an injection attempt', async () => {
     mockedCreateClient.mockReturnValue(
       createMockSupabaseClient({
         user: { id: 'u1' },
@@ -95,7 +95,7 @@ describe('POST /api/contracts/{id}/chat', () => {
     const body = await response.json()
     expect(response.status).toBe(400)
     expect(body.error.code).toBe('prompt_injection')
-    expect(mockedCreateCompletion).not.toHaveBeenCalled()
+    expect(mockedCreateResponse).not.toHaveBeenCalled()
   })
 
   it('returns 400 invalid_message for an empty message', async () => {
@@ -122,7 +122,7 @@ describe('POST /api/contracts/{id}/chat', () => {
     expect(response.status).toBe(400)
   })
 
-  it('creates a session, calls OpenAI, persists messages, and returns cited pages', async () => {
+  it('creates a session, calls the Azure agent, persists messages, and returns cited pages', async () => {
     mockedCreateClient.mockReturnValue(
       createMockSupabaseClient({
         user: { id: 'u1' },
@@ -139,8 +139,8 @@ describe('POST /api/contracts/{id}/chat', () => {
         },
       }) as never
     )
-    mockedCreateCompletion.mockResolvedValue(
-      chatCompletion('Based on the document, the governing law is Delaware. [Page 4]')
+    mockedCreateResponse.mockResolvedValue(
+      agentResponse('Based on the document, the governing law is Delaware. [Page 4]')
     )
 
     const response = await POST(postRequest({ message: 'What is the governing law?' }), { params: { id: 'c1' } })
@@ -153,10 +153,13 @@ describe('POST /api/contracts/{id}/chat', () => {
     expect(body.message_id).toBe('m2')
 
     // First-ever message with no history is always classified 'contract' —
-    // contract text must be present in what was actually sent to OpenAI.
-    const callArgs = mockedCreateCompletion.mock.calls[0][0]
-    expect(callArgs.messages[0].content).toContain('Answer only from the contract. Cite [Page X].')
-    expect(callArgs.messages[0].content).toContain('[PAGE 4]')
+    // contract text must be present in the single input message sent to the
+    // agent (no separate system role — the agent rejects one).
+    const callArgs = mockedCreateResponse.mock.calls[0][0] as { input: Array<{ role: string; content: string }> }
+    expect(callArgs.input).toHaveLength(1)
+    expect(callArgs.input[0].role).toBe('user')
+    expect(callArgs.input[0].content).toContain('Answer only from the contract. Cite [Page X].')
+    expect(callArgs.input[0].content).toContain('[PAGE 4]')
   })
 
   it('classifies a pure history-recall question as history and omits contract text', async () => {
@@ -179,8 +182,8 @@ describe('POST /api/contracts/{id}/chat', () => {
         },
       }) as never
     )
-    mockedCreateCompletion.mockResolvedValue(
-      chatCompletion('You just asked about the governing law. [From conversation]')
+    mockedCreateResponse.mockResolvedValue(
+      agentResponse('You just asked about the governing law. [From conversation]')
     )
 
     const response = await POST(
@@ -192,19 +195,22 @@ describe('POST /api/contracts/{id}/chat', () => {
     expect(response.status).toBe(200)
     expect(body.context_type).toBe('history')
 
-    const callArgs = mockedCreateCompletion.mock.calls[0][0]
-    expect(callArgs.messages[0].content).toBe('Answer only from the conversation. End with [From conversation].')
-    expect(callArgs.messages[0].content).not.toContain('[PAGE 4]')
-    // history (restored to chronological order) + the new message
-    expect(callArgs.messages).toEqual([
-      { role: 'system', content: 'Answer only from the conversation. End with [From conversation].' },
-      { role: 'user', content: 'What is the governing law?' },
-      { role: 'assistant', content: 'Based on the contract, Delaware. [Page 4]' },
-      { role: 'user', content: 'What did I just ask you?' },
-    ])
+    // history (restored to chronological order) + the new message, all
+    // flattened into the single input message the agent will accept.
+    const callArgs = mockedCreateResponse.mock.calls[0][0] as { input: Array<{ role: string; content: string }> }
+    expect(callArgs.input).toHaveLength(1)
+    const inputContent = callArgs.input[0].content
+    expect(inputContent).toContain('Answer only from the conversation. End with [From conversation].')
+    expect(inputContent).not.toContain('[PAGE 4]')
+    expect(inputContent.indexOf('What is the governing law?')).toBeLessThan(
+      inputContent.indexOf('Based on the contract, Delaware. [Page 4]')
+    )
+    expect(inputContent.indexOf('Based on the contract, Delaware. [Page 4]')).toBeLessThan(
+      inputContent.indexOf('What did I just ask you?')
+    )
   })
 
-  it('returns 502 openai_chat_failed when the model call fails', async () => {
+  it('returns 502 azure_chat_failed with the real error message when the agent call fails', async () => {
     mockedCreateClient.mockReturnValue(
       createMockSupabaseClient({
         user: { id: 'u1' },
@@ -215,12 +221,13 @@ describe('POST /api/contracts/{id}/chat', () => {
         },
       }) as never
     )
-    mockedCreateCompletion.mockRejectedValue(new Error('down'))
+    mockedCreateResponse.mockRejectedValue(new Error('down'))
 
     const response = await POST(postRequest({ message: 'hi' }), { params: { id: 'c1' } })
     const body = await response.json()
     expect(response.status).toBe(502)
-    expect(body.error.code).toBe('openai_chat_failed')
+    expect(body.error.code).toBe('azure_chat_failed')
+    expect(body.error.message).toBe('down')
   })
 })
 
